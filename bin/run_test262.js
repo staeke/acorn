@@ -13,7 +13,6 @@ const unsupportedFeatures = [
   "export-star-as-namespace-from-module",
   "import.meta",
   "numeric-separator-literal",
-  "optional-chaining",
   "top-level-await"
 ];
 

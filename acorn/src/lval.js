@@ -74,7 +74,11 @@ pp.toAssignable = function(node, isBinding, refDestructuringErrors) {
       break
 
     case "MemberExpression":
-      if (!isBinding) break
+      if (isBinding) this.raise(node.start, "Assigning to rvalue")
+      if (this.options.ecmaVersion >= 11 && (node.optional || node.shortCircuited)) {
+        this.raise(node.start, "Optional chaining cannot appear in left-hand side")
+      }
+      break
 
     default:
       this.raise(node.start, "Assigning to rvalue")
@@ -203,6 +207,9 @@ pp.checkLVal = function(expr, bindingType = BIND_NONE, checkClashes) {
 
   case "MemberExpression":
     if (bindingType) this.raiseRecoverable(expr.start, "Binding member expression")
+    if (this.options.ecmaVersion >= 11 && (expr.optional || expr.shortCircuited)) {
+      this.raise(expr.start, "Optional chaining cannot appear in left-hand side")
+    }
     break
 
   case "ObjectPattern":

@@ -269,21 +269,30 @@ pp.parseExprSubscripts = function(refDestructuringErrors) {
 pp.parseSubscripts = function(base, startPos, startLoc, noCalls) {
   let maybeAsyncArrow = this.options.ecmaVersion >= 8 && base.type === "Identifier" && base.name === "async" &&
       this.lastTokEnd === base.end && !this.canInsertSemicolon() && this.input.slice(base.start, base.end) === "async"
+  let shortCircuited = false
   while (true) {
-    let element = this.parseSubscript(base, startPos, startLoc, noCalls, maybeAsyncArrow)
+    let element = this.parseSubscript(base, startPos, startLoc, noCalls, maybeAsyncArrow, shortCircuited)
+    if (this.options.ecmaVersion >= 11 && element.optional) shortCircuited = true
     if (element === base || element.type === "ArrowFunctionExpression") return element
     base = element
   }
 }
 
-pp.parseSubscript = function(base, startPos, startLoc, noCalls, maybeAsyncArrow) {
+pp.parseSubscript = function(base, startPos, startLoc, noCalls, maybeAsyncArrow, shortCircuited) {
+  let optional = this.options.ecmaVersion >= 11 && this.eat(tt.optionalChaining)
+  if (noCalls && optional) this.raiseRecoverable(this.lastTokStart, "Optional chaining cannot appear in the callee of new expressions")
+
   let computed = this.eat(tt.bracketL)
-  if (computed || this.eat(tt.dot)) {
+  if ((optional && this.type !== tt.parenL && this.type !== tt.backQuote) || computed || this.eat(tt.dot)) {
     let node = this.startNodeAt(startPos, startLoc)
     node.object = base
     node.property = computed ? this.parseExpression() : this.parseIdent(this.options.allowReserved !== "never")
     node.computed = !!computed
     if (computed) this.expect(tt.bracketR)
+    if (this.options.ecmaVersion >= 11) {
+      node.optional = optional
+      node.shortCircuited = !!shortCircuited
+    }
     base = this.finishNode(node, "MemberExpression")
   } else if (!noCalls && this.eat(tt.parenL)) {
     let refDestructuringErrors = new DestructuringErrors, oldYieldPos = this.yieldPos, oldAwaitPos = this.awaitPos, oldAwaitIdentPos = this.awaitIdentPos
@@ -291,7 +300,7 @@ pp.parseSubscript = function(base, startPos, startLoc, noCalls, maybeAsyncArrow)
     this.awaitPos = 0
     this.awaitIdentPos = 0
     let exprList = this.parseExprList(tt.parenR, this.options.ecmaVersion >= 8, false, refDestructuringErrors)
-    if (maybeAsyncArrow && !this.canInsertSemicolon() && this.eat(tt.arrow)) {
+    if (maybeAsyncArrow && !optional && !this.canInsertSemicolon() && this.eat(tt.arrow)) {
       this.checkPatternErrors(refDestructuringErrors, false)
       this.checkYieldAwaitInDefaultParams()
       if (this.awaitIdentPos > 0)
@@ -308,8 +317,15 @@ pp.parseSubscript = function(base, startPos, startLoc, noCalls, maybeAsyncArrow)
     let node = this.startNodeAt(startPos, startLoc)
     node.callee = base
     node.arguments = exprList
+    if (this.options.ecmaVersion >= 11) {
+      node.optional = optional
+      node.shortCircuited = !!shortCircuited
+    }
     base = this.finishNode(node, "CallExpression")
   } else if (this.type === tt.backQuote) {
+    if (optional || shortCircuited) {
+      this.raise(this.start, "Optional chaining cannot appear in the tag of tagged template expressions")
+    }
     let node = this.startNodeAt(startPos, startLoc)
     node.tag = base
     node.quasi = this.parseTemplate({isTagged: true})
